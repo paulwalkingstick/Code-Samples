@@ -1,0 +1,474 @@
+/**
+ *	BottomScreenPick
+ *
+ *	A state class that controls the Pick content in the bottom screen. May be 
+ *	loaded by Content or other state classes to load Pick content.
+ */
+//Flash
+import mx.events.EventDispatcher;
+import mx.utils.Delegate;
+
+import com.as2.gameSource.GameObject;
+
+
+import com.content.mainIntro;
+import components.CustomButton;
+import content.ContentState;
+import content.IContentState;
+import events.Event;
+import test.TestScreen;
+import states.GameStates;
+import utils.Definitions;
+import utils.Resources;
+
+class com.content.mainPick extends ContentState implements IContentState
+{
+	//Functions used when adding and removing event listeners (alphabetized).
+	private var m_delegate_introComplete:Function;
+	private var m_delegate_introLoaded:Function;
+	
+	private var m_intro:mainIntro		= null;	//Used to load Intro state in order to complete transition to Pick state.
+	private var m_pick_mc:MovieClip				= null;	//_root.contentContainer_mc.m_content_mc.pickContainer_mc.pick_mc.
+	
+	private var m_TestScreen:TestScreen	= null;	//Controls test screen access.
+	
+	private var m_pickDelegates:Array			= null;	//Array of onPickHandler delegate functions for the picks.
+	private var m_singlePicks:Array				= null;	//Array of CustomButtons (picks).
+	
+	//Constructor
+	public function BottomScreenPick()
+	{
+		super();
+		
+		init();
+	}
+	
+   /**
+	*	Called by the constructor. Initializes variables and methods.
+	*/
+	private function init():Void
+	{
+		m_delegate_introComplete	= Delegate.create(this, introComplete);
+		m_delegate_introLoaded		= Delegate.create(this, introLoaded);
+	}
+	
+   /**
+	*	Called by Content (but may be called by other state classes) to load the 
+	*	state. Sends state to the top glass. If coming out of the intro state
+	*	loads the intro class to complete the intro state. Otherwise, only
+	*	only loads the pick assets and foregoes the intro state.
+	*
+	*	@param _content_mc The movie clip that holds all of the content.
+	*	@param _selectedIndexes Array of indexes previously selected.
+	*	@param _selectedSymbols Array of symbols previously selected.
+	*	@param _tier The tier awarded to the player.
+	*	@param _award The award amount to the player.
+	*	@param _stateVars Any vars passed from the previous state.
+	*/
+	public function load(_content_mc:MovieClip, _selectedIndexes:Array, _selectedSymbols:Array, _tier:Number, _award:Number, _stateVars:Object):Void
+	{
+		super.load(GameStates.PICK, _content_mc, _selectedIndexes, _selectedSymbols, _tier, _award, _stateVars);
+		
+		var soundChannels:Array = Resources.soundPlayer.getSoundChannels();
+		if (soundChannels.length == 0)
+		{
+			Resources.soundPlayer.playSound("BackgroundMusic", 9999);
+		}
+		else
+		{
+			for (var i:Number = 0; i < soundChannels.length; i++)
+			{
+				if (soundChannels[i].getSoundName() == "BackgroundMusic")
+				{
+					break;
+				}
+				else if (i == soundChannels.length - 1)
+				{
+					Resources.soundPlayer.playSound("BackgroundMusic", 9999);
+				}
+			}
+		}
+		
+		if (!Resources.bypassUC)
+		{			
+			var BonusBeginStateRequest:GameObject = new GameObject();
+				BonusBeginStateRequest.setString("command", "BonusBeginStateRequest");
+				BonusBeginStateRequest.setString("state", GameStates.PICK);
+			if (m_selectedIndexes)
+			{
+				BonusBeginStateRequest.setNumberList("selectedIndexes", m_selectedIndexes);
+			}
+			else
+			{
+				BonusBeginStateRequest.setNumberList("selectedIndexes", []);
+			}
+			if (m_selectedSymbols)
+			{
+				BonusBeginStateRequest.setNumberList("selectedSymbols", m_selectedSymbols);
+			}
+			else
+			{
+				BonusBeginStateRequest.setNumberList("selectedSymbols", []);
+			}
+				
+			Resources.stompCommunicator.sendThisObject(BonusBeginStateRequest, Definitions.TARGET_TYPE_FLASH_TOP);
+		}
+		
+		if (m_selectedIndexes.length == 0 || m_selectedIndexes == null)
+		{
+			loadIntro();
+		}
+		else
+		{
+			loadPickMovieClip();
+		}
+	}
+	
+   /**
+	*	Called by load to load the intro state (used to complete the wipe transition
+	*	from intro to pick).
+	*/
+	private function loadIntro():Void
+	{
+		m_intro = new mainIntro();
+		m_intro.addEventListener(Event.LOADED, m_delegate_introLoaded);
+		m_intro.load(m_content_mc, null, null, -1, -1, null);
+	}
+	
+   /**
+	*	Dispatched by m_intro when the intro state has loaded. Loads the pick 
+	*	content.
+	*/
+	private function introLoaded():Void
+	{
+		m_intro.removeEventListener(Event.LOADED, m_delegate_introLoaded);
+		m_intro.addEventListener(Event.COMPLETE, m_delegate_introComplete);
+		
+		loadPickMovieClip();
+	}
+	
+   /**
+	*	Called by introLoaded or load to load the pick content. If coming out of 
+	*	the intro state, completes the transition from intro to pick. Otherwise
+	*	listens for mouse event (player making a pick).
+	*/
+	private function loadPickMovieClip():Void
+	{
+		loaded();
+		
+		if (m_content_mc.pickContainer_mc.pick_mc == undefined)
+		{
+			m_content_mc.pickContainer_mc.attachMovie("Pick_MC", "pick_mc", m_content_mc.pickContainer_mc.getNextHighestDepth());
+		}
+		
+		m_pick_mc = m_content_mc.pickContainer_mc.pick_mc;
+		
+		m_content_mc.pickContainer_mc.pickForegroundWhite_mc._visible = true;
+		
+		var msg:String = "collect";
+		if (m_selectedIndexes.length % 2 == 0)
+		{
+			msg = "keepPicking";
+		}
+		if (m_intro)
+		{
+			m_pick_mc.pickForeground_mc._visible = false;
+			m_pick_mc.pickBackground_mc._visible = false;
+			msg = "pick";
+		}
+		
+		displayPickScreen(msg);
+		
+		if (m_selectedIndexes.length == 0 || m_selectedIndexes == null && m_intro != undefined)
+		{
+			loadTestScreen();
+			m_intro.completeIntroTransition();	//Call after loaded().
+		}
+		else
+		{
+			addPickEventHandlers();
+		}
+	}
+	
+   /**
+	*	Dispatched by m_intro after it completes its wipe transition to the pick 
+	*	state. Unloads m_intro and listens for the player to make a pick.
+	*/
+	private function introComplete():Void
+	{
+		unloadIntro();
+		addPickEventHandlers();
+	}
+	
+   /**
+	*	Required in all state classes. Called by loadPickMovieClip to unload the 
+	*	previous class (if there is one).
+	*/
+	public function loaded():Void
+	{
+		super.loaded();
+	}
+	
+   /**
+	*	Called by loadPickMovieClip to display the progressive gaf (if enabled by
+	*	the UC).
+	*/
+	private function loadTestScreen():Void
+	{
+		if (Resources.gaffed)
+		{
+			m_TestScreen = new TestScreen();
+			m_TestScreen.load(m_pick_mc.TestScreen_mc);
+			m_pick_mc.TestScreen_mc._visible = true;
+		}
+	}
+	
+	/**
+	*	Called by loadPickMovieClip to display the pick messages.
+	*/
+	private function displayPickScreen(_msg):Void
+	{
+		m_pick_mc.TestScreen_mc._visible = false;
+		
+		m_pick_mc.pickBackground_mc.background_mc.gotoAndStop(Resources.locale.language);
+		
+		//Display Credit meters
+		m_pick_mc.pickBackground_mc.creditMeter_txt.text = Resources.creditAmount;
+		m_pick_mc.pickBackground_mc.betMeter_txt.text = Resources.betAmount;
+		m_pick_mc.pickBackground_mc.winMeter_txt.text = Resources.winAmount;
+		
+		//Display Message
+		var messages_mc:MovieClip = m_pick_mc.pickForeground_mc.messages_mc;
+		for(var i:String in messages_mc)
+		{
+			messages_mc[i]._visible = false;
+		}
+		messages_mc["messages_" + Resources.locale.language + "_mc"].gotoAndStop(_msg);
+		messages_mc["messages_" + Resources.locale.language + "_mc"]._visible = true;
+		messages_mc.play();
+		
+		//Animate background elements
+		m_pick_mc.pickBackground_mc.bg_01_mc.play();
+		m_pick_mc.pickBackground_mc.bg_02_mc.play();
+		
+		//Display picks as idle by default.
+		m_singlePicks = new Array();
+		m_pickDelegates = new Array();
+		for (var i:Number = 0; i < Resources.objectCount; i++)
+		{
+			var foregroundPick_mc:MovieClip = m_pick_mc.pickForeground_mc["pick_" + i + "_mc"];
+				foregroundPick_mc._visible = true;
+				foregroundPick_mc.idle_mc.gotoAndStop(1);
+				foregroundPick_mc.idle_mc._visible = true;
+				foregroundPick_mc.release_mc._visible = false;
+				foregroundPick_mc.release_mc.gotoAndStop(1);
+				foregroundPick_mc.reveal_mc._visible = false;
+				foregroundPick_mc.reveal_mc.gotoAndStop(1);
+			
+			var backgroundPick_mc:MovieClip = m_pick_mc.pickBackground_mc["pick_" + i + "_mc"];
+				backgroundPick_mc._visible = true;
+				backgroundPick_mc.idle_mc._visible = true;
+				backgroundPick_mc.idle_mc.play();
+				backgroundPick_mc.completed_mc._visible = false;
+			
+			var singlePick:CustomButton = new CustomButton();
+				singlePick.load(foregroundPick_mc);
+				
+			var delegate:Function = Delegate.create(this, onPickHandler);
+			
+			m_pickDelegates.push(delegate);
+			m_singlePicks.push(singlePick);			
+		}
+		
+		//Display Completed picks.
+		for (var i:Number = 0; i < m_selectedIndexes.length; i++)
+		{
+			var foregroundPick_mc:MovieClip = m_pick_mc.pickForeground_mc["pick_" + m_selectedIndexes[i] + "_mc"];
+				foregroundPick_mc._visible = false;
+			
+			var backgroundPick_mc:MovieClip = m_pick_mc.pickBackground_mc["pick_" + m_selectedIndexes[i] + "_mc"];
+				backgroundPick_mc._visible = true;
+				backgroundPick_mc.idle_mc._visible = false;
+				backgroundPick_mc.idle_mc.gotoAndStop(1);
+				backgroundPick_mc.completed_mc.gotoAndStop(m_selectedSymbols[i] + 1);
+				backgroundPick_mc.completed_mc._visible = true;
+		}
+		
+		//Make the pick screen visible.
+		m_pick_mc.pickForeground_mc._visible = true;
+		m_pick_mc.pickBackground_mc._visible = true;
+	}
+	
+	/**
+	*	Dispatched by a pick when the player clicks on a pick. Plays the
+	*	reveal animation. Dispatches a state complete message to the parent.
+	*/
+	private function onPickHandler(_event:Object):Void
+	{
+		for (var i:Number = 0; i < m_singlePicks.length; i++)
+		{
+			m_singlePicks[i].removeEventListener(Event.MOUSE_UP, m_pickDelegates[i]);
+		}
+		
+		m_content_mc.onEnterFrame_mc.onEnterFrame = Delegate.create(this, revealOnEnterFrame);
+		var indexOfPick:Number = parseInt(_event.name.substring(_event.name.indexOf("_") + 1, _event.name.lastIndexOf("_")));
+		
+		m_pick_mc.pickForeground_mc["pick_" + indexOfPick + "_mc"].idle_mc._visible = false;
+		m_pick_mc.pickForeground_mc["pick_" + indexOfPick + "_mc"].reveal_mc._visible = true;
+		m_pick_mc.pickForeground_mc["pick_" + indexOfPick + "_mc"].reveal_mc.play();
+		
+		complete(indexOfPick);
+	}
+	
+	/**
+	*	Called by introComplete when the intro state transition has completed.
+	*	Unloads m_intro and removes the movie clip from the stage.
+	*/
+	private function unloadIntro():Void
+	{
+		if (m_intro)
+		{
+			m_intro.removeEventListener(Event.LOADED, m_delegate_introLoaded);
+			m_intro.removeEventListener(Event.COMPLETE, m_delegate_introComplete);
+			m_intro.unload();
+			m_intro = null;
+		}
+		if (m_content_mc.introContainer_mc.intro_mc != undefined)
+		{
+			m_content_mc.introContainer_mc.intro_mc.swapDepths(0);
+			m_content_mc.introContainer_mc.intro_mc.removeMovieClip();
+		}
+	}
+	
+	/**
+	*	Called by loadPickMovieClip or introComplete to add event listeners to the
+	*	picks. If game is in autoplay (from the config file) makes a pick.
+	*/
+	private function addPickEventHandlers():Void
+	{
+		if (!Resources.tilt)
+		{
+			for (var i:Number = 0; i < m_singlePicks.length; i++)
+			{
+				m_singlePicks[i].addEventListener(Event.MOUSE_UP, m_pickDelegates[i]);
+			}
+		}
+		
+		if (Resources.autoplay)
+		{
+			if (m_selectedIndexes == undefined || m_selectedIndexes == null || m_selectedIndexes.length == 0)
+			{
+				m_singlePicks[Resources.autoplayPicks[0]].onPickHandler();
+			}
+			else
+			{
+				m_singlePicks[Resources.autoplayPicks[m_selectedIndexes.length]].onPickHandler();
+			}
+		}
+	}
+	
+	/**
+	*	Called by onPickHandler to track frames in the reveal animation.
+	*/
+	private function revealOnEnterFrame():Void
+	{
+		for (var i:Number = 0; i < Resources.objectCount; i++)
+		{
+			if (m_pick_mc.pickForeground_mc["pick_" + i + "_mc"].reveal_mc.playLoop)
+			{
+				m_pick_mc.pickForeground_mc["pick_" + i + "_mc"].reveal_mc.playLoop = false;
+				m_pick_mc.pickForeground_mc["pick_" + i + "_mc"].reveal_mc.stop();
+				m_pick_mc.pickForeground_mc["pick_" + i + "_mc"].reveal_mc._visible = false;
+				m_pick_mc.pickForeground_mc["pick_" + i + "_mc"].release_mc._visible = true;
+				m_pick_mc.pickForeground_mc["pick_" + i + "_mc"].release_mc.play();
+			}
+			if (m_pick_mc.pickForeground_mc["pick_" + i + "_mc"].reveal_mc._currentframe == m_pick_mc.pickForeground_mc["pick_" + i + "_mc"].reveal_mc._totalframes)
+			{
+				delete m_content_mc.onEnterFrame_mc.onEnterFrame;
+				m_pick_mc.pickForeground_mc["pick_" + i + "_mc"].reveal_mc._visible = false;
+			}
+		}
+	}
+	
+   /**
+	*	Required in all state classes. Called by onPickHandler to signal to the 
+	*	parent class that the state has completed.
+	*
+	*	@param _index The index of the pick made.
+	*	@param _stateVars Any vars to pass to the next state.
+	*/
+	public function complete(_index:Number, _stateVars:Object):Void
+	{
+		super.complete(_index);
+	}
+	
+   /**
+	*	Required in all state classes. Only used in idle state. Can't change locale
+	*	mid-bonus.
+	*/
+	public function setLocale():Void
+	{
+		//Can't change locale mid-bonus.
+	}
+	
+   /**
+	*	Called by parent to disable mouse events.
+	*/
+	public function setTilt():Void
+	{
+		Resources.logger.log("BottomScreenPick::setTilt");
+		Resources.logger.log("\t Resources.tilt: " + Resources.tilt);
+		if (Resources.tilt)
+		{
+			for (var i:Number = 0; i < m_singlePicks.length; i++)
+			{
+				m_singlePicks[i].removeEventListener(Event.MOUSE_UP, m_pickDelegates[i]);
+			}
+		}
+		else
+		{
+			for (var i:Number = 0; i < m_singlePicks.length; i++)
+			{
+				m_singlePicks[i].removeEventListener(Event.MOUSE_UP, m_pickDelegates[i]);
+				m_singlePicks[i].addEventListener(Event.MOUSE_UP, m_pickDelegates[i]);
+			}
+		}
+	}
+	
+   /**
+	*	Called by parent to unload children and event listeners.
+	*/
+	public function unload():Void
+	{
+		Resources.logger.log("BottomScreenPick::unload");
+		super.unload();
+		
+		m_content_mc.pickContainer_mc.pickForegroundWhite_mc._visible = false;
+		
+		delete m_content_mc.onEnterFrame_mc.onEnterFrame;
+				
+		if (m_singlePicks)
+		{
+			for (var i:Number = 0; i < m_singlePicks.length; i++)
+			{
+				m_singlePicks[i].removeEventListener(Event.MOUSE_UP, m_pickDelegates[i]);
+				m_singlePicks[i].unload();
+				m_singlePicks[i] = null;
+				m_pickDelegates[i] = null;
+			}
+			m_singlePicks.splice(0);
+			m_pickDelegates.splice(0);
+			m_singlePicks = null;
+		}
+		
+		if (m_intro)
+		{
+			unloadIntro();
+		}
+		
+		if (m_pick_mc)
+		{			
+			m_pick_mc = null;
+		}
+	}
+}
