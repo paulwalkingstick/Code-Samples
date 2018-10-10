@@ -1,0 +1,639 @@
+-- Sample Lingo Code
+
+global goDataMgr
+global goReelMgr
+global goSymbolMgr
+global goSoundMgr
+global goStateMachine
+
+global glHardTilts
+global glLockouts
+global gbForcingRamClear
+global gbFastReelStop
+global gOkToStopReels
+
+
+property pReelNum
+property pSpinnerCode
+property pDefaultSpinSpeed
+property pFullSpinSpeed
+property pStartSpinSound
+property pStopSpinSound
+property pPostEventStart
+property pPostEventSpin
+property pPostEventStop
+
+property psMyName
+property psRevNum
+property psRevDate
+property pSprite
+property pReelActive
+property pActiveOnStartup
+property pIgnoreActive
+
+property pTargetStop
+
+property poReelState
+property pValidStates
+property pMotionStates
+
+property pReelStopCallbackProc
+property pReelStopCallbackObj
+
+property pSoundPlaying
+
+property pSpinReverse
+property pBounceSpeed
+property pBounceTime
+
+property pStingerSound
+property pNoSpin
+
+property poVirtualStrip
+property pNeedNewFrame
+property pSpinnerState
+
+property pLastUpdateMs -- so we don't try to process too often
+property pAllowHide
+
+--------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on getPropertyDescriptionList me
+  spinnerCodes = [#mainSpin, #fsSpin]
+  
+  theProps = [:]
+  theProps[#pReelNum         ]=[#format:#integer, #default:1    , #comment:"Select virtual reel number"]
+  theProps[#pSpinnerCode     ]=[#format:#symbol,  #default:spinnerCodes[1], #comment:"Select group", range: spinnerCodes]
+  
+  theProps[#pFullSpinSpeed   ]=[#format:#integer, #default:10000   , #comment:"Full speed for normal spin (Pixels/Sec)"]
+  theProps[#pSpinReverse     ]=[#format:#boolean, #default:false, #comment:"Spin in reverse?"]
+  theProps[#pStartSpinSound  ]=[#format:#symbol , #default:#handlePull, #comment:"Sound to play when reel starts spinning"]
+  theProps[#pStopSpinSound   ]=[#format:#symbol , #default:#reelLock, #comment:"Sound to play when reel stops spinning"]
+  
+  theProps[#pActiveOnStartup ]=[#format:#boolean, #default:true, #comment:"Reel active on start-up"]
+  
+  theProps[#pPostEventStart   ]=[#format:#boolean, #default:false, #comment:"Post event #reelSpinStart?"]
+  theProps[#pPostEventSpin    ]=[#format:#boolean, #default:false, #comment:"Post event #reelSpinning?"]
+  theProps[#pPostEventStop    ]=[#format:#boolean, #default:false, #comment:"Post event #reelSpinStop?"]
+  
+  theProps[#pBounceSpeed      ]=[#format:#integer, #default:10  , #comment:"Bounce Speed (% of full speed)"]
+  theProps[#pBounceTime       ]=[#format:#integer, #default:150 , #comment:"Bounce Time (ms)"]
+  theProps[#pAllowHide        ]=[#format:#boolean, #default:true , #comment:"Allow 'hideReels'?"]
+  
+  return theProps
+end
+
+
+--------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on beginSprite me  
+  poVirtualStrip = script("Virtual Strip").new()
+  pLastUpdateMs = the milliseconds
+  
+  psMyName  = scriptName(me)
+  psRevNum  = 2
+  psRevDate = "12/18/2013"
+  pSprite = sprite(me.spriteNum)
+  pSprite.blend = 100
+  pNoSpin = false
+  
+  if voidP(pSpinnerCode) then pSpinnerCode = #mainSpin
+  
+  pReelActive = pActiveOnStartup
+  pIgnoreActive = false
+  if voidP(pReelActive) then pReelActive = true
+  if not pReelActive then pIgnoreActive = true -- so the reels get built on startup
+  
+  if voidP(pSpinReverse) then pSpinReverse = false
+  if voidP(pFullSpinSpeed) then pFullSpinSpeed = 10000
+  if voidP(pBounceSpeed) then pBounceSpeed = 10
+  if voidP(pBounceTime) then pBounceTime = 150
+  if voidP(pAllowHide) then pAllowHide = true
+  if objectP(goReelMgr) then 
+    pValidStates = [#init, #idle, #spinStart, #spinning, #spinEnd, #stopped]
+    pMotionStates = [#spinStart, #spinning, #spinEnd]
+    poReelState = script("Abstract State Machine").new()
+    if not voidP(poReelState) then
+      lCount = pValidStates.count
+      repeat with i = 1 to lCount
+        poReelState.addState(pValidStates[i])
+      end repeat
+      poReelState.addTransitionCall(#lStateTransition, me)
+      poReelState.setState(#init)
+    end if
+    if not voidP(goStateMachine) then
+      goStateMachine.addTransitionCall(#gStateTransition, me)
+    end if
+    
+    if voidP(pPostEventStart) then pPostEventStart = false
+    if voidP(pPostEventSpin) then pPostEventSpin = false
+    if voidP(pPostEventStop) then pPostEventStop = false
+    pStingerSound = void
+    
+    if (pSprite.member.type = #bitmap) then
+      pSprite.member.image = image(pSprite.rect.width, pSprite.rect.height, 32)
+      pSprite.member.image.useAlpha = TRUE
+      pSprite.member.image.setAlpha(0)
+    end if
+    
+    pTargetStop = -1
+    
+    if (pFullSpinSpeed = 0) then pFullSpinSpeed = 10000
+    pDefaultSpinSpeed = pFullSpinSpeed
+    
+    pReelStopCallbackProc = void
+    pReelStopCallbackObj = void
+    
+    pSoundPlaying = void
+    
+    pNeedNewFrame = TRUE
+    pSpinnerState = #invalid
+    
+    -- register objects
+    goReelMgr.registerReelObject(pReelNum, pSprite)
+    
+    -- register event handlers
+    registerEventHandler(#wagerChanged, me, #showReels)
+    registerEventHandler(#denomChanged, me, #showReels)
+    registerEventHandler(#setReelActive, me, #setReelActive)
+    
+    me.setReelActive([#aReelNum: pReelNum, #aState: pReelActive])
+    
+  else
+    pSprite.visible = false
+  end if
+  
+  return me
+end
+
+--------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on endSprite me
+  -- unregister objects
+  if objectP(goReelMgr) then goReelMgr.unregisterReelObject(pReelNum, pSprite)
+  
+  -- unregister event handlers
+  unregisterEventHandler(#wagerChanged, me, #showReels)
+  unregisterEventHandler(#denomChanged, me, #showReels)
+  unregisterEventHandler(#setReelActive, me, #setReelActive)
+  
+  pValidStates = void
+  pMotionStates = void
+  pTargetStop = void
+  pFullSpinSpeed = void
+  pReelStopCallbackProc = void
+  pReelStopCallbackObj = void
+  pSoundPlaying = void
+  
+  if objectP(poReelState) then poReelState = void  
+  if objectP(poVirtualStrip) then poVirtualStrip = void
+end
+
+
+--------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on lStateTransition me, oldState, newState
+  soundToPlay = void
+  stingSoundToPlay = void
+  
+  case newState of
+    #spinStart:
+      if (pStartSpinSound.ilk = #symbol) then soundToPlay = pStartSpinSound
+      if pPostEventStart then postEvent(#reelSpinStart, [#reelNum:pReelNum])
+      
+    #spinning:
+      if pPostEventSpin then postEvent(#reelSpinning, [#reelNum:pReelNum])
+      
+    #spinEnd:
+      if (pStopSpinSound.ilk = #symbol) then soundToPlay = pStopSpinSound
+      if (pStingerSound.ilk = #symbol) then stingSoundToPlay = pStingerSound
+      if pPostEventStop then postEvent(#reelSpinStop, [#reelNum:pReelNum])
+      
+  end case
+  
+  if (soundToPlay = #none) then soundToPlay = void
+  if (stingSoundToPlay = #none) then stingSoundToPlay = void
+  
+  if (not voidP(soundToPlay)) and (objectP(goSoundMgr)) then
+    if (not voidP(pSoundPlaying)) and (goSoundMgr.soundBusy(pSoundPlaying)) then
+      goSoundMgr.stopSound(pSoundPlaying)
+    end if
+    if not pNoSpin then 
+      goSoundMgr.playSound(soundToPlay, true)
+    end if
+    
+    pSoundPlaying = soundToPlay
+    
+  end if
+  
+  if (not voidP(stingSoundToPlay)) and (objectP(goSoundMgr)) then
+    if not pNoSpin then goSoundMgr.playSound(stingSoundToPlay, true)
+  end if
+  
+  if (newState = #stopped) then
+    executeAfterTime(#notifyReelDone, me, 1)
+  end if
+  
+end
+
+
+--------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on gStateTransition me, oldState, newState
+  if objectP(poReelState) then
+    case poReelState.getState() of
+      #idle:
+        nothing
+        
+      #spinStart:
+        if newState = #idle then
+          poReelState.setState(#spinEnd)
+        end if 
+        
+      #spinning:
+        if newState = #idle then
+          poReelState.setState(#spinEnd)
+        end if 
+        
+      #spinEnd:
+        if newState = #idle then
+          poReelState.setState(#spinEnd)
+        end if 
+        
+      #stopped:
+        nothing
+        
+    end case
+  end if
+end
+
+
+--------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on setReelActive me, aDatalist
+  -- [#aState: aState, #aReelNum: i]
+  if checkDatalist(aDatalist, [#aState, #aReelNum]) then
+    if pReelNum = aDatalist.aReelNum then
+      pReelActive = aDatalist.aState
+      lockState = #lock
+      if pReelActive then lockState = #unlock
+      if objectP(goReelMgr) then
+        goReelMgr.lockReel(pReelNum, lockState)
+      end if
+    end if
+  end if
+end
+
+
+--------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on findVirtualReel me, aReelNum
+  if (pReelNum = aReelNum) then return pSprite
+end
+
+
+--------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on buildStripImage me, aMemberList, blurredStrip, aStop, ignoreActive
+  if gbForcingRamClear then return
+  if blurredStrip = true then return
+  
+  if (ignoreActive = true) then  pIgnoreActive = true
+  if objectP(goSymbolMgr) and (aMemberList.ilk = #list) then
+    
+    poVirtualStrip.setStrip(aMemberList)
+    if poVirtualStrip.initSpinner(pSpinnerCode, pSprite.member.image, -pFullSpinSpeed) then
+      pTargetStop = aStop
+      poVirtualStrip.setSpinnerStop(pSpinnerCode, pTargetStop)
+      pNeedNewFrame = true
+    end if
+  end if
+end
+
+
+--------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on showReels me 
+  pSprite.blend = 100
+end
+
+
+---------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on hideReels me 
+  if pAllowHide then
+    if pReelActive then pSprite.blend = 0
+  end if
+end
+
+---------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on forceHideReels me 
+  pSprite.blend = 0
+end
+
+--------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on startSpin me
+  if pReelActive then
+    if objectP(poVirtualStrip) then
+      pTargetStop = -1
+      pStingerSound = void
+      poVirtualStrip.startSpinner(pSpinnerCode)
+    end if
+  end if
+end
+
+--------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on checkSpinToTarget me, aDatalist
+  doStop = false
+  if voidP(gOkToStopReels) then gOkToStopReels = true
+  if gOkToStopReels then
+    if aDatalist.ilk = #list then
+      if aDatalist.count = 4 then
+        doStop = true
+      end if
+    end if
+  end if
+  if doStop then
+    me.spinToTarget(aDatalist[1], aDatalist[2], aDatalist[3], aDatalist[4])
+  else
+    executeAfterTime(#checkSpinToTarget, me, 100, aDatalist)
+  end if
+end
+
+--------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on inactiveSpinToTarget me
+  if objectP(poReelState) then
+    poReelState.setState(#stopped)
+  end if
+end
+
+--------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on spinToTarget me, aCallbackProc, aCallbackObj, aStop, aStinger  
+  if objectP(poReelState) then
+    if not pReelActive then
+      pReelStopCallbackProc = aCallbackProc
+      pReelStopCallbackObj = aCallbackObj
+      executeAfterTime(#inactiveSpinToTarget, me, 50)
+    else
+      setCheck = true
+      if voidP(gOKToStopReels) then gOKToStopReels = true
+      
+      if gOkToStopReels then
+        if objectP(poVirtualStrip) then
+          if poVirtualStrip.setSpinnerTarget(pSpinnerCode, aStop) then
+            pReelStopCallbackProc = aCallbackProc
+            pReelStopCallbackObj = aCallbackObj
+            pTargetStop = aStop
+            pStingerSound = aStinger
+            setCheck = false
+          end if
+        end if
+      end if
+      
+      if setCheck then
+        -- try again in a bit
+        params = [aCallbackProc, aCallbackObj, aStop, aStinger]
+        executeAfterTime(#checkSpinToTarget, me, 100, params)
+      end if
+      
+    end if
+  end if
+end
+
+--------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on notifyReelDone me
+  if (objectP(pReelStopCallbackObj)) and (not voidP(pReelStopCallbackProc)) then
+    call(pReelStopCallbackProc, pReelStopCallbackObj, pReelNum)
+    pReelStopCallbackProc = void
+    pReelStopCallbackObj = void
+  end if
+  
+end
+
+--------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on enterFrame me
+  if pReelActive or (pIgnoreActive = true) then
+    if objectP(poVirtualStrip) then
+      if (glHardTilts.Count=0) then
+        ms = the milliseconds
+        if abs(ms - pLastUpdateMs) > 30 then
+          pSpinnerState = poVirtualStrip.MoveSpinner(pSpinnerCode)
+          if (pSpinnerState <> #idle) then -- We're in motion so need to update the picture
+            pNeedNewFrame = TRUE
+          end if
+        end if
+      else  -- Hard tilts, pause the spin...      
+        pSpinnerState = poVirtualStrip.PauseSpinner(pSpinnerCode)
+      end if
+      
+      if (pNeedNewFrame) then
+        poVirtualStrip.getSpinFrame(pSpinnerCode, pSprite.member.image)
+        pNeedNewFrame = FALSE
+        pLastUpdateMs = ms
+        postEvent(#stripBuilt, pReelNum)
+      end if
+      
+      pSprite.visible = pReelActive
+      
+    else
+      pSpinnerState = #invalid
+    end if
+    pIgnoreActive = false
+  end if
+end
+
+--------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on exitframe me
+  
+  if not voidP(poReelState) then 
+    theState = poReelState.getState()
+  else
+    theState = #invalid
+  end if
+  
+  if (theState <> #invalid) then  -- We have a state object, OK to process...
+    
+    if (theState = #init) then  -- first pass through we haven't done anything yet so transition to idle
+      poReelState.setState(#idle)
+    else  -- Normal processing...
+      if pReelActive then
+        
+        case theState of
+          #idle:
+            if (pSpinnerState <> #idle) then poReelState.setState(#spinStart)  -- We thought we were idle and the spinner is not, implied reel start
+          #spinStart:
+            poReelState.setState(#spinning)  -- Spinner has no analog, so transition directly to spinning state
+          #spinning:
+            if [#bouncing, #stopped, #idle].getOne(pSpinnerState) then  -- We thought we were spinning but the spinner is at or near the end of spin
+              poReelState.setState(#spinEnd)
+            end if
+          #spinEnd:
+            if [#stopped, #idle].getOne(pSpinnerState) then  -- We thought we were finishing the spin but spinner is done so advance
+              poReelState.setState(#stopped)
+            end if
+          #stopped:
+            if (pSpinnerState = #idle) then  -- We thought we had stopped, and the spinner is now idle so advance to idle ourselves
+              -- we need to let the Reel Manager know we've finished as too
+              if pReelStopCallbackProc.ilk = #symbol then             
+                executeAfterTime(#notifyReelDone, me, 1)
+              end if
+              poReelState.setState(#idle)
+            end if
+        end case
+      end if
+    end if
+  end if
+  
+end
+
+
+--------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on setNoSpin me, aValue
+  pNoSpin = aValue
+end
+
+--------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on changeSpinSpeed me, aValue
+  if aValue.ilk = #integer then 
+    pFullSpinSpeed = aValue
+  end if
+  me.updateSpinDetails()
+end
+
+--------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on changeReverseSpin me, aValue
+  if (aValue.ilk = #boolean) then
+    pSpinReverse = aValue
+  end if
+  me.updateSpinDetails()
+end
+
+
+--------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on updateSpinDetails me
+  if objectP(poVirtualStrip) then
+    pFullSpinSpeed = abs(pFullSpinSpeed)
+    if (pSpinReverse=TRUE) then
+      newSpeed = pFullSpinSpeed
+    else
+      newSpeed = -pFullSpinSpeed
+    end if
+    poVirtualStrip.setSpinnerSpeed(pSpinnerCode, newSpeed)
+    
+    pBounceSpeed = -abs(pBounceSpeed)
+    pBounceTime = abs(pBounceTime)
+    poVirtualStrip.setSpinnerBounceSpeed(pBounceSpeed)
+    poVirtualStrip.setSpinnerBounceTime(pBounceTime)
+  end if
+end
+
+
+--------------------
+-- Method:
+-- inputs:
+-- outputs:
+--
+--------------------
+on restoreSpinSpeed me
+  me.changeSpinSpeed(pDefaultSpinSpeed)
+end

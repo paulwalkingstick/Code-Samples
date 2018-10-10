@@ -1,0 +1,277 @@
+/**
+ *	BottomScreenIntro
+ *
+ *	A state class that controls the Intro content in the bottom screen. May be 
+ *	loaded by Content or other state classes to load Intro content.
+ */
+//Flash
+import mx.utils.Delegate;
+
+//GameObject
+import com.gameCompany.rp.as2.gameBase.GameObject;
+
+//The Great Zodiac Race
+import content.ContentState
+import content.IContentState
+import events.CommEvent;
+import events.Event;
+import utils.Definitions;
+import utils.Resources;
+import states.GameStates;
+
+class com.gameCompany.bottomScreen.content.BottomScreenIntro extends ContentState implements IContentState
+{
+	//Functions used when adding and removing event listeners (alphabetized).
+	private var m_delegate_playWipeIn2:Function;
+	private var m_delegate_transitionToPickState:Function;
+	
+	private var m_intro_mc:MovieClip				= null;	//_root.contentContainer_mc.m_content_mc.introContainer_mc.intro_mc
+	private var m_switchIntroMessageInterval:Number	= 0;	//Used during the Intro to change the on-screen message.
+	
+	//Constructor
+	public function BottomScreenIntro()
+	{
+		super();
+		
+		init();
+	}
+	
+   /**
+	*	Called by the contructor to initialize variables and methods.
+	*/
+	private function init():Void
+	{
+		m_delegate_playWipeIn2				= Delegate.create(this, playWipeIn2);
+		m_delegate_transitionToPickState	= Delegate.create(this, transitionToPickState);
+	}
+	
+   /**
+	*	Called by Content (but may be called by other state classes) to load the 
+	*	state. Sends state to the top glass. If it doesn't exist, creates a new
+	*	instance of Intro_MC (m_intro_mc). If in the Intro state, plays clouds.
+	*	If in the pick state, sets the locale.
+	*
+	*	@param _content_mc The movie clip that holds all of the content.
+	*	@param _selectedIndexes Array of indexes previously selected.
+	*	@param _selectedSymbols Array of symbols previously selected.
+	*	@param _tier The tier awarded to the player.
+	*	@param _award The award amount to the player.
+	*	@param _stateVars Any vars passed from the previous state.
+	*/
+	public function load(_content_mc:MovieClip, _selectedIndexes:Array, _selectedSymbols:Array, _tier:Number, _award:Number, _stateVars:Object):Void
+	{
+		super.load(GameStates.INTRO, _content_mc, _selectedIndexes, _selectedSymbols, _tier, _award, _stateVars);
+		
+		if (m_content_mc.introContainer_mc.intro_mc == undefined)
+		{
+			m_content_mc.introContainer_mc.attachMovie("Intro_MC", "intro_mc", m_content_mc.introContainer_mc.getNextHighestDepth());
+		}
+		m_intro_mc = m_content_mc.introContainer_mc.intro_mc;
+		
+		m_intro_mc.introForeground_mc.gotoAndStop("S00_" + Resources.locale.language);
+		m_intro_mc.introBackground_mc.gotoAndStop("S00_" + Resources.locale.language);
+		
+		m_intro_mc.introForeground_mc._visible = false;
+		m_intro_mc.introBackground_mc._visible = false;
+		
+		loaded();
+		
+		if (GameStates.currentState != GameStates.PICK)
+		{			
+			m_intro_mc.introForeground_mc._visible = true;
+			m_intro_mc.introBackground_mc._visible = true;
+		
+			if (Resources.bypassUC)
+			{
+				playWipeIn2();
+			}
+			else
+			{
+				Resources.stompCommunicator.addEventListener(CommEvent.START_WIPE, m_delegate_playWipeIn2);
+				
+				var BonusBeginStateRequest:GameObject = new GameObject();
+					BonusBeginStateRequest.setString("command", "BonusBeginStateRequest");
+					BonusBeginStateRequest.setString("state", GameStates.INTRO);
+				
+				Resources.stompCommunicator.sendGameObject(BonusBeginStateRequest, Definitions.TARGET_TYPE_FLASH_TOP);
+			}
+		}
+	}
+
+   /**
+	*	Required in all state classes. Called by load to notify parent that state
+	*	is loaded. Content class will unload previous state (if loaded by Content). 
+	*	Other state classes will perform various tasks if this is loaded by them.
+	*/
+	public function loaded():Void
+	{
+		super.loaded();
+	}
+
+   /**
+	*	Called by playWipeOut1 or dispatched by stompCommunicator to play
+	*	the wipe-in animation.
+	*/
+	private function playWipeIn2():Void
+	{		
+		if (!Resources.bypassUC)
+		{
+			Resources.stompCommunicator.removeEventListener(CommEvent.START_WIPE, m_delegate_playWipeIn2);
+		}
+		
+		Resources.soundPlayer.playSound("WipeOut");
+		
+		if (m_switchIntroMessageInterval)
+		{
+			clearInterval(m_switchIntroMessageInterval);
+			m_switchIntroMessageInterval = null;
+		}
+		
+		Resources.soundPlayer.playSound("BackgroundMusic", 9999);
+		Resources.soundPlayer.playSound("WipeIn");
+		
+		m_content_mc.wipeContainer_mc.wipe_mc.onEnterFrame = Delegate.create(this, wipe2OnEnterFrame);
+		m_content_mc.wipeContainer_mc.wipe_mc._visible = true;
+		m_content_mc.wipeContainer_mc.wipe_mc.gotoAndPlay("WipeIn");
+	}
+	
+   /**
+	*	Called by playWipeIn2 to listen for onEnterFrame events.
+	*/
+	private function wipe2OnEnterFrame():Void
+	{
+		if (m_content_mc.wipeContainer_mc.wipe_mc.wipeInComplete)
+		{
+			m_content_mc.wipeContainer_mc.wipe_mc.wipeInComplete = false;
+			wipeIn2Complete();
+		}
+		else if (m_content_mc.wipeContainer_mc.wipe_mc._currentframe == m_content_mc.wipeContainer_mc.wipe_mc._totalframes)
+		{
+			delete m_content_mc.wipeContainer_mc.wipe_mc.onEnterFrame;
+			wipeOut2Complete();
+		}
+	}
+	
+   /**
+	*	Called by wipe1OnEnterFrame when the timeline has reached the frame that 
+	*	sets wipeInComplete to true.
+	*/
+	private function wipeIn2Complete():Void
+	{
+		m_content_mc.wipeContainer_mc.wipe_mc.stop();
+		
+		m_intro_mc.introForeground_mc._visible = false;
+		m_intro_mc.introBackground_mc._visible = false;
+		
+		if (Resources.bypassUC)
+		{
+			transitionToPickState();
+		}
+		else
+		{
+			Resources.stompCommunicator.addEventListener(CommEvent.BONUS_END_STATE_REQUEST, m_delegate_transitionToPickState);
+		
+			var StartWipe:GameObject = new GameObject();
+				StartWipe.setString("command", "StartWipe");
+			Resources.stompCommunicator.sendGameObject(StartWipe, Definitions.TARGET_TYPE_FLASH_TOP);
+		}
+	}
+	
+   /**
+	*	Called by wipeIn2Complete or dispatched by stompCommunicator to signal
+	*	that the intro state has completed.
+	*/
+	private function transitionToPickState():Void
+	{
+		if (!Resources.bypassUC)
+		{
+			Resources.stompCommunicator.removeEventListener(CommEvent.BONUS_END_STATE_REQUEST, m_delegate_transitionToPickState);
+		}
+		
+		complete();
+	}
+	
+   /**
+	*	Called by Pick class (loads BottomScreenIntro) to complete the intro wipe 
+	*	and continue displaying the pick screen.
+	*/
+	public function completeIntroTransition():Void
+	{		
+		m_intro_mc.introForeground_mc.gotoAndStop("S00_" + Resources.locale.language);
+		m_intro_mc.introBackground_mc.gotoAndStop("S00_" + Resources.locale.language);
+		
+		m_intro_mc.introForeground_mc._visible = false;
+		m_intro_mc.introBackground_mc._visible = false;
+		
+		Resources.soundPlayer.playSound("WipeOut");
+		
+		m_content_mc.wipeContainer_mc.wipe_mc.onEnterFrame = Delegate.create(this, wipe2OnEnterFrame);
+		m_content_mc.wipeContainer_mc.wipe_mc.gotoAndPlay("WipeOut");
+	}
+	
+   /**
+	*	Called by wipe2OnEnterFrame when the wipe has reached the last frame. Calls
+	*	the complete function.
+	*/
+	private function wipeOut2Complete():Void
+	{
+		m_content_mc.wipeContainer_mc.wipe_mc.stop();
+		delete m_content_mc.wipeContainer_mc.wipe_mc.onEnterFrame;
+		
+		if (!Resources.bypassUC)
+		{
+			var FinishWipe:GameObject = new GameObject();
+				FinishWipe.setString("command", "FinishWipe");
+				
+			Resources.stompCommunicator.sendGameObject(FinishWipe, Definitions.TARGET_TYPE_FLASH_TOP);
+		}
+		
+		complete();
+	}
+	
+   /**
+	*	Required in all state classes. Called by transitionToPickState or 
+	*	wipeOut2Complete to signal to the parent class that the state has completed.
+	*
+	*	@param _index The index of the pick made.
+	*	@param _stateVars Any vars to pass to the next state.
+	*/
+	public function complete(_index:Number, _stateVars:Object):Void
+	{
+		super.complete();
+	}
+	
+   /**
+	*	Required in all state classes. Only used in idle state. Can't change locale
+	*	mid-bonus.
+	*/
+	public function setLocale():Void
+	{
+		//Can't change locale mid-bonus.
+	}
+	
+   /**
+	*	Required in all state classes. Called by parent to unload this state.
+	*/
+	public function unload():Void
+	{
+		Resources.logger.log("BottomScreenIntro::unload");
+		super.unload();
+		
+		delete m_content_mc.wipeContainer_mc.wipe_mc.onEnterFrame;
+		
+		Resources.stompCommunicator.removeEventListener(CommEvent.START_WIPE, m_delegate_playWipeIn2);
+		Resources.stompCommunicator.removeEventListener(CommEvent.BONUS_END_STATE_REQUEST, m_delegate_transitionToPickState);
+
+		if (m_switchIntroMessageInterval)
+		{
+			clearInterval(m_switchIntroMessageInterval);
+			m_switchIntroMessageInterval = null;
+		}
+		
+		if (m_intro_mc)
+		{
+			m_intro_mc = null;
+		}
+	}
+}

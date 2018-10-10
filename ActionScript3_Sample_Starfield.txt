@@ -1,0 +1,159 @@
+/*	Paul Walkingstick
+	6/5/2014
+	Flash Test for Kixeye
+	Starfield! The New Frontier
+	
+	This application produces a moving starfield emulating the screensaver
+	found in old Windows Operating Systems. Code is optimized to render the
+	highest number of stars possible while maintaining at least 40fps. The 
+	previous record was reportedly 100,000 stars. This build produces 210,000
+	stars at 41fps on FlashPlayer 13.
+	
+	It does this by:
+	A) Using a List instead of an Array or Vector, thereby saving 
+	Indexing functions on each cycle.
+	B) Rendering a single black Bitmap with star locations rendered as white pixels, 
+	instead of trying to render many individual objects.
+	Note: RectFill is used to reset the Bitmap each cycle. Instead of unloading
+	and reloading new data, current data is simply updated, saving a couple procedures
+	each cycle.
+*/
+
+//========== IMPORT
+
+//Import pixel star maker
+import PixelPoint;
+import flash.text.TextField;
+import flash.events.MouseEvent;
+
+//========== VARIABLES
+
+//Number of stars to create. This can be changed in the interface during runtime.
+var numStars:Number = 210000;
+//First star referenced in List. *Note* List used instead of Vector or Array.
+var firstStar:PixelPoint;
+//Stars are displayed as white pixels in a bitmap. Here is the bitmap and its data.
+var display:Sprite;
+var bmpData:BitmapData;
+var bitmap:Bitmap;
+//Display will match stage height and width.
+var displayWidth:Number = stage.stageWidth - container_mc.x;
+var displayHeight:Number = stage.stageHeight - container_mc.y;
+var originX:Number = displayWidth / 2;
+var originY:Number = displayHeight / 2;
+//FPS variables
+var frames:uint;
+var prevTimer:Number;
+var curTimer:Number;
+
+//restrict input to numeric only
+stars_txt.restrict = "0-9";
+
+//========== INIT
+
+init();
+//Initialize application
+function init():void 
+{
+	//Set vars for FPS
+	frames = 0;
+	prevTimer = 0;
+	curTimer = 0;
+	stars_txt.text = numStars.toString();
+	//check for existing bitmap and remove
+	if(container_mc.bitmap)
+	{
+		container_mc.removeChild(bitmap);
+		bmpData.dispose();
+	}
+	//Create Black, non-transparent bitmap. Add to container_mc on stage.
+	bmpData = new BitmapData(displayWidth,displayHeight,false,0x00000000);
+	bitmap = new Bitmap(bmpData);
+	container_mc.addChild(bitmap);
+	//Populate bitmap with stars.
+	createStars();
+	//run onEnterFrame transform
+	this.addEventListener(Event.ENTER_FRAME, onEnter);
+	enterButton_mc.addEventListener(MouseEvent.CLICK, updateStars);
+}
+//Updates stars after user input
+function updateStars(e:MouseEvent):void
+{
+	numStars = Number(stars_txt.text);
+	init();
+}
+//Updates movement of stars
+function onEnter(evt:Event):void
+{
+	//Stats
+	frames++;
+	curTimer = getTimer();
+	if(curTimer - prevTimer >= 1000)
+	{
+		var fpsLong:String = String( frames * 1000 / (curTimer-prevTimer));
+		var decIndex:int = fpsLong.indexOf(".");
+		fps_txt.text = fpsLong.substring(0, decIndex + 3);
+		prevTimer = curTimer;
+		frames = 0;
+	}
+	
+	//Stars
+	var p:PixelPoint = firstStar;
+	//Black out bitmap before populating with new star positions
+	bmpData.fillRect(new Rectangle(0, 0, displayWidth, displayHeight), 0x00000000);
+	
+	do {
+		var yPos:Number = p.y + (p.sp * p.yr);
+		var xPos:Number = p.x + (p.sp * p.xr);
+		//If coordinate is off the bitmap, reset near origin
+		if (yPos < 0 || yPos > displayHeight)
+		{
+			yPos = originY + (p.sp * p.yr);
+			xPos = originX + (p.sp * p.xr);
+		}
+		if (xPos < 0 || xPos > displayWidth)
+		{
+			yPos = originY + (p.sp * p.yr);
+			xPos = originX + (p.sp * p.xr);
+		}
+		p.y = yPos;
+		p.x = xPos;
+		p.color = 0xFFFFFFFF;
+		bmpData.setPixel32(p.x, p.y, p.color);
+		
+		p = p.next;
+		
+	} while (p != null)
+	
+}
+//Creates 'numStars' number of stars in bitmap
+function createStars():void 
+{
+	var lastStar:PixelPoint;
+	//Populate bitmap with stars
+	for (var i=0; i<numStars; i++) 
+	{
+		var thisP:PixelPoint = new PixelPoint();
+			thisP.x = displayWidth*Math.random();
+			thisP.y = displayHeight*Math.random();
+			thisP.sp = 4*Math.random(); //speed for individual star
+			//Solve for Distance (hypotenuse) from origin 
+			var legX:Number = thisP.x - originX;
+			var legY:Number = thisP.y - originY;
+			var dist:Number = Math.sqrt(legX*legX + legY*legY);
+			//Solve for X Ratio and Y Ratio
+			thisP.xr = legX/dist;
+			thisP.yr = legY/dist;
+			
+		//Create a list of stars using 'next' property
+		if (i == 0) 
+		{
+			firstStar = thisP;
+		} else 
+		{
+			lastStar.next = thisP;
+		}
+			
+		lastStar = thisP;
+	}
+}
