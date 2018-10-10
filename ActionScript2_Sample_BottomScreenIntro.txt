@@ -10,7 +10,7 @@ import mx.utils.Delegate;
 //GameObject
 import com.gameCompany.rp.as2.gameBase.GameObject;
 
-//The Great Zodiac Race
+//Import Elements
 import content.ContentState
 import content.IContentState
 import events.CommEvent;
