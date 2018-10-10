@@ -25,7 +25,7 @@ class com.gameCompany.bottomScreen.content.BottomScreenIntro extends ContentStat
 	private var m_delegate_playWipeIn2:Function;
 	private var m_delegate_transitionToPickState:Function;
 	
-	private var m_intro_mc:MovieClip				= null;	//_root.contentContainer_mc.m_content_mc.introContainer_mc.intro_mc
+	private var m_intro_mc:MovieClip = null;
 	private var m_switchIntroMessageInterval:Number	= 0;	//Used during the Intro to change the on-screen message.
 	
 	//Constructor
@@ -41,8 +41,8 @@ class com.gameCompany.bottomScreen.content.BottomScreenIntro extends ContentStat
 	*/
 	private function init():Void
 	{
-		m_delegate_playWipeIn2				= Delegate.create(this, playWipeIn2);
-		m_delegate_transitionToPickState	= Delegate.create(this, transitionToPickState);
+		m_delegate_playWipeIn2 = Delegate.create(this, playWipeIn2);
+		m_delegate_transitionToPickState = Delegate.create(this, transitionToPickState);
 	}
 	
    /**
@@ -177,7 +177,7 @@ class com.gameCompany.bottomScreen.content.BottomScreenIntro extends ContentStat
 		}
 	}
 	
-   /**
+   	/**
 	*	Called by wipeIn2Complete or dispatched by stompCommunicator to signal
 	*	that the intro state has completed.
 	*/
@@ -191,7 +191,7 @@ class com.gameCompany.bottomScreen.content.BottomScreenIntro extends ContentStat
 		complete();
 	}
 	
-   /**
+   	/**
 	*	Called by Pick class (loads BottomScreenIntro) to complete the intro wipe 
 	*	and continue displaying the pick screen.
 	*/
@@ -209,9 +209,9 @@ class com.gameCompany.bottomScreen.content.BottomScreenIntro extends ContentStat
 		m_content_mc.wipeContainer_mc.wipe_mc.gotoAndPlay("WipeOut");
 	}
 	
-   /**
-	*	Called by wipe2OnEnterFrame when the wipe has reached the last frame. Calls
-	*	the complete function.
+   	/**
+	*	Called by wipe2OnEnterFrame when the wipe has reached the last frame. 
+	*	Calls the complete function.
 	*/
 	private function wipeOut2Complete():Void
 	{
@@ -229,7 +229,7 @@ class com.gameCompany.bottomScreen.content.BottomScreenIntro extends ContentStat
 		complete();
 	}
 	
-   /**
+   	/**
 	*	Required in all state classes. Called by transitionToPickState or 
 	*	wipeOut2Complete to signal to the parent class that the state has completed.
 	*
@@ -241,7 +241,7 @@ class com.gameCompany.bottomScreen.content.BottomScreenIntro extends ContentStat
 		super.complete();
 	}
 	
-   /**
+   	/**
 	*	Required in all state classes. Only used in idle state. Can't change locale
 	*	mid-bonus.
 	*/
@@ -250,7 +250,7 @@ class com.gameCompany.bottomScreen.content.BottomScreenIntro extends ContentStat
 		//Can't change locale mid-bonus.
 	}
 	
-   /**
+   	/**
 	*	Required in all state classes. Called by parent to unload this state.
 	*/
 	public function unload():Void
